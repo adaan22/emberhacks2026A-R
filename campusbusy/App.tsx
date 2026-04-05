@@ -30,6 +30,11 @@ const CAMPUS_REGION = {
   longitudeDelta: 0.022,
 };
 
+const CAMPUS_BOUNDS = {
+  northEast: { latitude: 51.095, longitude: -114.112 },
+  southWest: { latitude: 51.060, longitude: -114.150 },
+};
+
 type LocationEntry = {
   name: string;
   coordinates: { lat: number; lng: number };
@@ -133,6 +138,7 @@ function getHoursLabel(locationData: any, isOpen: boolean, now: Date): string {
 
 export default function App() {
   const [selected, setSelected] = useState<LocationEntry | null>(null);
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportScore, setReportScore] = useState<number | null>(null);
   const [reports, setReports] = useState<Record<string, { score: number; ts: number }[]>>({});
@@ -239,6 +245,8 @@ export default function App() {
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
         initialRegion={CAMPUS_REGION}
+        minZoomLevel={13}
+        mapBoundaries={CAMPUS_BOUNDS}
         showsUserLocation
         showsCompass={false}
         showsPointsOfInterest={false}
@@ -246,7 +254,7 @@ export default function App() {
         poiClickEnabled={false}
         onPress={dismiss}
       >
-        {locations.map((loc) => (
+        {locations.filter((loc) => !activeFilter || loc.category === activeFilter).map((loc) => (
           <Marker
             key={loc.name}
             coordinate={{ latitude: loc.coordinates.lat, longitude: loc.coordinates.lng }}
@@ -277,6 +285,39 @@ export default function App() {
           <Text style={styles.liveText}>Live</Text>
         </View>
       </View>
+
+      {/* Filter chips */}
+      {!selected && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterBar}
+          contentContainerStyle={styles.filterBarContent}
+        >
+          {[
+            { label: 'All',          icon: '🗺',  value: null },
+            { label: 'Academic',     icon: '🎓',  value: 'Academic' },
+            { label: 'Food & Drink', icon: '🍽',  value: 'Food & Drink' },
+            { label: 'Library',      icon: '📚',  value: 'Library' },
+            { label: 'Recreation',   icon: '🏃',  value: 'Recreation' },
+          ].map((f) => {
+            const active = activeFilter === f.value;
+            return (
+              <TouchableOpacity
+                key={f.label}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setActiveFilter(active ? null : f.value)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.filterChipIcon}>{f.icon}</Text>
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
 
       {/* Settings FAB */}
       {!selected && (
@@ -397,11 +438,13 @@ export default function App() {
 
             {/* Report Button */}
             <TouchableOpacity
-              style={styles.reportBtn}
-              activeOpacity={0.85}
-              onPress={() => { setReportScore(null); setReportOpen(true); }}
+              style={[styles.reportBtn, !selected.isOpen && styles.reportBtnDisabled]}
+              activeOpacity={selected.isOpen ? 0.85 : 1}
+              onPress={() => { if (selected.isOpen) { setReportScore(null); setReportOpen(true); } }}
             >
-              <Text style={styles.reportBtnText}>Submit a Report</Text>
+              <Text style={styles.reportBtnText}>
+                {selected.isOpen ? 'Submit a Report' : 'Closed — No Reports'}
+              </Text>
             </TouchableOpacity>
           </>
         )}
@@ -594,6 +637,48 @@ const styles = StyleSheet.create({
     color: '#EF4444',
   },
 
+  // Filter bar
+  filterBar: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 110 : 90,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  filterBarContent: {
+    paddingHorizontal: 14,
+    gap: 8,
+    flexDirection: 'row',
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  filterChipActive: {
+    backgroundColor: '#CC0000',
+  },
+  filterChipIcon: {
+    fontSize: 13,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  filterChipTextActive: {
+    color: '#FFF',
+  },
+
   // Markers
   marker: {
     width: 18,
@@ -774,6 +859,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 6,
+  },
+  reportBtnDisabled: {
+    backgroundColor: '#E5E7EB',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   reportBtnText: {
     color: '#FFF',
