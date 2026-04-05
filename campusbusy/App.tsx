@@ -143,7 +143,13 @@ export default function App() {
   const [reportScore, setReportScore] = useState<number | null>(null);
   const [reports, setReports] = useState<Record<string, { score: number; ts: number }[]>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [timeOverride, setTimeOverride] = useState<Date | null>(null);
+  const [timeOverride, setTimeOverride] = useState<Date | null>(() => {
+    const d = new Date();
+    const daysUntilWed = (3 - d.getDay() + 7) % 7;
+    d.setDate(d.getDate() + daysUntilWed);
+    d.setHours(13, 0, 0, 0);
+    return d;
+  });
   const [settingsDraft, setSettingsDraft] = useState(() => new Date());
   const [mapTick, setMapTick] = useState(0);
   const slideAnim = useRef(new Animated.Value(350)).current;
