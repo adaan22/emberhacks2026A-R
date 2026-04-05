@@ -99,7 +99,7 @@ export default function App() {
   const [selected, setSelected] = useState<LocationEntry | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportScore, setReportScore] = useState<number | null>(null);
-  const [reports, setReports] = useState<Record<string, number[]>>({});
+  const [reports, setReports] = useState<Record<string, { score: number; ts: number }[]>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [timeOverride, setTimeOverride] = useState<Date | null>(null);
   const [settingsDraft, setSettingsDraft] = useState(() => new Date());
@@ -122,8 +122,9 @@ export default function App() {
     () =>
       Object.entries(campusData as any).map(([name, data]: [string, any]) => {
         const base = getCurrentBusyness(data, now);
-        const submitted = reports[name] ?? [];
-        const allScores = [base, ...submitted.map((r) => r * 10)];
+        const cutoff = Date.now() - 3 * 60 * 60 * 1000;
+        const submitted = (reports[name] ?? []).filter((r) => r.ts > cutoff);
+        const allScores = [base, ...submitted.map((r) => r.score * 10)];
         const busyness = Math.round(allScores.reduce((a, b) => a + b, 0) / allScores.length);
         return {
           name,
@@ -419,7 +420,7 @@ export default function App() {
                 if (reportScore && selected) {
                   setReports((prev) => ({
                     ...prev,
-                    [selected.name]: [...(prev[selected.name] ?? []), reportScore],
+                    [selected.name]: [...(prev[selected.name] ?? []), { score: reportScore, ts: Date.now() }],
                   }));
                   setReportOpen(false);
                 }
