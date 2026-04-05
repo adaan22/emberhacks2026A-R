@@ -36,6 +36,8 @@ type LocationEntry = {
   busyness: number;
   category: string;
   popular_times: any;
+  hours: any;
+  isOpen: boolean;
 };
 
 function getCurrentBusyness(locationData: any, now: Date): number {
@@ -95,6 +97,40 @@ function getTodayHourlyData(locationData: any, now: Date): { time: string; score
   return locationData?.popular_times?.graph_results?.[currentDay] ?? [];
 }
 
+function getTodayHours(locationData: any, now: Date): { open: string; close: string } | null {
+  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  return locationData?.hours?.[days[now.getDay()]] ?? null;
+}
+
+function checkIsOpen(locationData: any, now: Date): boolean {
+  const todayHours = getTodayHours(locationData, now);
+  if (!todayHours) return false;
+  const [openH, openM] = todayHours.open.split(':').map(Number);
+  const [closeH, closeM] = todayHours.close.split(':').map(Number);
+  const current = now.getHours() * 60 + now.getMinutes();
+  const open = openH * 60 + openM;
+  const close = closeH * 60 + closeM;
+  return current >= open && current < close;
+}
+
+function formatHour(time: string): string {
+  const h = parseInt(time.split(':')[0], 10);
+  if (h === 0 || h === 24) return '12 AM';
+  if (h === 12) return '12 PM';
+  if (h < 12) return `${h} AM`;
+  return `${h - 12} PM`;
+}
+
+function getHoursLabel(locationData: any, isOpen: boolean, now: Date): string {
+  const todayHours = getTodayHours(locationData, now);
+  if (!todayHours) return 'Closed today';
+  if (isOpen) return `Open · Closes ${formatHour(todayHours.close)}`;
+  const current = now.getHours() * 60 + now.getMinutes();
+  const [openH, openM] = todayHours.open.split(':').map(Number);
+  if (current < openH * 60 + openM) return `Closed · Opens ${formatHour(todayHours.open)}`;
+  return `Closed · Opens ${formatHour(todayHours.open)} tomorrow`;
+}
+
 export default function App() {
   const [selected, setSelected] = useState<LocationEntry | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
@@ -126,11 +162,14 @@ export default function App() {
         const submitted = (reports[name] ?? []).filter((r) => r.ts > cutoff);
         const allScores = [base, ...submitted.map((r) => r.score * 10)];
         const busyness = Math.round(allScores.reduce((a, b) => a + b, 0) / allScores.length);
+        const isOpen = checkIsOpen(data, now);
         return {
           name,
           coordinates: data.coordinates,
           popular_times: data.popular_times,
+          hours: data.hours,
           busyness,
+          isOpen,
           category: getCategory(name),
         };
       }),
@@ -216,7 +255,7 @@ export default function App() {
           >
             <View style={[
               styles.marker,
-              { backgroundColor: getBusynessColor(loc.busyness) },
+              { backgroundColor: loc.isOpen ? getBusynessColor(loc.busyness) : '#9CA3AF' },
               selected?.name === loc.name && styles.markerSelected,
             ]}>
               {selected?.name === loc.name && (
@@ -281,6 +320,9 @@ export default function App() {
                 <Text style={styles.categoryIcon}>{getCategoryIcon(selected.category)}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardName} numberOfLines={1}>{selected.name}</Text>
+                  <Text style={[styles.cardHoursLabel, { color: selected.isOpen ? '#22C55E' : '#9CA3AF' }]}>
+                    {getHoursLabel(selected, selected.isOpen, now)}
+                  </Text>
                   <Text style={styles.cardCategory}>{selected.category}</Text>
                 </View>
                 <TouchableOpacity onPress={dismiss} style={styles.closeBtn}>
@@ -643,11 +685,16 @@ const styles = StyleSheet.create({
     color: '#111',
     letterSpacing: -0.3,
   },
+  cardHoursLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
   cardCategory: {
     fontSize: 12,
     color: '#9CA3AF',
     fontWeight: '500',
-    marginTop: 2,
+    marginTop: 1,
   },
   closeBtn: {
     width: 28,
