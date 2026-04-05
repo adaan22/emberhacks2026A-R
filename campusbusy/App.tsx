@@ -13,7 +13,15 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { StatusBar } from 'expo-status-bar';
 import MapView, { Marker } from 'react-native-maps';
+import type { MapStyleElement } from 'react-native-maps';
 import campusData from './campus_data_estimated.json';
+
+/** Google Maps: hide built-in POIs so only our markers appear (Android; iOS if using Google). */
+const MAP_STYLE_NO_BUILTIN_LOCATIONS: MapStyleElement[] = [
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+];
 
 const CAMPUS_REGION = {
   latitude: 51.0784,
@@ -89,6 +97,8 @@ function getTodayHourlyData(locationData: any, now: Date): { time: string; score
 
 export default function App() {
   const [selected, setSelected] = useState<LocationEntry | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportScore, setReportScore] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [timeOverride, setTimeOverride] = useState<Date | null>(null);
   const [settingsDraft, setSettingsDraft] = useState(() => new Date());
@@ -184,6 +194,9 @@ export default function App() {
         initialRegion={CAMPUS_REGION}
         showsUserLocation
         showsCompass={false}
+        showsPointsOfInterest={false}
+        customMapStyle={MAP_STYLE_NO_BUILTIN_LOCATIONS}
+        poiClickEnabled={false}
         onPress={dismiss}
       >
         {locations.map((loc) => (
@@ -333,12 +346,75 @@ export default function App() {
             )}
 
             {/* Report Button */}
-            <TouchableOpacity style={styles.reportBtn} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={styles.reportBtn}
+              activeOpacity={0.85}
+              onPress={() => { setReportScore(null); setReportOpen(true); }}
+            >
               <Text style={styles.reportBtnText}>Submit a Report</Text>
             </TouchableOpacity>
           </>
         )}
       </Animated.View>
+
+      {/* Report Modal */}
+      <Modal
+        visible={reportOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setReportOpen(false)}
+      >
+        <SafeAreaView style={styles.reportModalSafe}>
+          <View style={styles.reportModalHeader}>
+            <TouchableOpacity onPress={() => setReportOpen(false)} style={styles.settingsBackBtn}>
+              <Text style={styles.settingsBackText}>← Back</Text>
+            </TouchableOpacity>
+            <Text style={styles.settingsTitle}>Report Busyness</Text>
+            <View style={{ width: 72 }} />
+          </View>
+
+          <View style={styles.reportModalBody}>
+            <Text style={styles.reportModalLocation} numberOfLines={1}>{selected?.name}</Text>
+            <Text style={styles.reportModalPrompt}>How busy is it right now?</Text>
+            <Text style={styles.reportModalScale}>1 = Empty · 10 = Packed</Text>
+
+            <View style={styles.reportScaleRow}>
+              {[1,2,3,4,5,6,7,8,9,10].map((n) => {
+                const active = reportScore !== null && n <= reportScore;
+                const color = reportScore === null ? '#E5E7EB'
+                  : reportScore <= 3 ? '#22C55E'
+                  : reportScore <= 6 ? '#F59E0B'
+                  : reportScore <= 8 ? '#F97316'
+                  : '#EF4444';
+                return (
+                  <TouchableOpacity
+                    key={n}
+                    style={[styles.reportScaleBtn, { backgroundColor: active ? color : '#F3F4F6' }]}
+                    onPress={() => setReportScore(n)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.reportScaleBtnText, { color: active ? '#FFF' : '#9CA3AF' }]}>{n}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {reportScore !== null && (
+              <Text style={styles.reportScoreLabel}>
+                {reportScore <= 3 ? 'Pretty quiet' : reportScore <= 6 ? 'Moderately busy' : reportScore <= 8 ? 'Quite busy' : 'Very packed!'}
+              </Text>
+            )}
+
+            <TouchableOpacity
+              style={[styles.reportSubmitBtn, !reportScore && styles.reportSubmitBtnDisabled]}
+              activeOpacity={reportScore ? 0.85 : 1}
+              onPress={() => reportScore && setReportOpen(false)}
+            >
+              <Text style={styles.reportSubmitBtnText}>Submit</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
 
       <Modal
         visible={settingsOpen}
@@ -662,6 +738,91 @@ const styles = StyleSheet.create({
   },
   settingsFabIcon: {
     fontSize: 26,
+  },
+
+  reportModalSafe: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  reportModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E5E7EB',
+  },
+  reportModalBody: {
+    flex: 1,
+    padding: 24,
+    alignItems: 'center',
+  },
+  reportModalLocation: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#CC0000',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  reportModalPrompt: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  reportModalScale: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginBottom: 32,
+  },
+  reportScaleRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  reportScaleBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportScaleBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  reportScoreLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 32,
+  },
+  reportSubmitBtn: {
+    backgroundColor: '#CC0000',
+    borderRadius: 14,
+    paddingVertical: 15,
+    paddingHorizontal: 48,
+    alignItems: 'center',
+    shadowColor: '#CC0000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  reportSubmitBtnDisabled: {
+    backgroundColor: '#E5E7EB',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  reportSubmitBtnText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 
   settingsSafe: {
