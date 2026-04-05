@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -6,13 +6,14 @@ import {
   TouchableOpacity,
   Animated,
   Platform,
-  Dimensions,
+  Modal,
+  SafeAreaView,
+  ScrollView,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { StatusBar } from 'expo-status-bar';
 import MapView, { Marker } from 'react-native-maps';
 import campusData from './campus_data_estimated.json';
-
-const { width, height } = Dimensions.get('window');
 
 const CAMPUS_REGION = {
   latitude: 51.0784,
@@ -29,8 +30,7 @@ type LocationEntry = {
   popular_times: any;
 };
 
-function getCurrentBusyness(locationData: any): number {
-  const now = new Date();
+function getCurrentBusyness(locationData: any, now: Date): number {
   const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const currentDay = days[now.getDay()];
   const h = now.getHours();
@@ -81,8 +81,7 @@ function getBusynessLabel(score: number): string {
   return 'Very Busy';
 }
 
-function getTodayHourlyData(locationData: any): { time: string; score: number }[] {
-  const now = new Date();
+function getTodayHourlyData(locationData: any, now: Date): { time: string; score: number }[] {
   const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const currentDay = days[now.getDay()];
   return locationData?.popular_times?.graph_results?.[currentDay] ?? [];
@@ -90,18 +89,43 @@ function getTodayHourlyData(locationData: any): { time: string; score: number }[
 
 export default function App() {
   const [selected, setSelected] = useState<LocationEntry | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [timeOverride, setTimeOverride] = useState<Date | null>(null);
+  const [settingsDraft, setSettingsDraft] = useState(() => new Date());
+  const [mapTick, setMapTick] = useState(0);
   const slideAnim = useRef(new Animated.Value(350)).current;
   const mapRef = useRef<MapView>(null);
 
-  const locations: LocationEntry[] = Object.entries(campusData as any).map(
-    ([name, data]: [string, any]) => ({
-      name,
-      coordinates: data.coordinates,
-      popular_times: data.popular_times,
-      busyness: getCurrentBusyness(data),
-      category: getCategory(name),
-    })
+  useEffect(() => {
+    if (timeOverride != null) return;
+    const id = setInterval(() => setMapTick((n) => n + 1), 60000);
+    return () => clearInterval(id);
+  }, [timeOverride]);
+
+  const now = useMemo(
+    () => timeOverride ?? new Date(),
+    [timeOverride, mapTick]
   );
+
+  const locations: LocationEntry[] = useMemo(
+    () =>
+      Object.entries(campusData as any).map(([name, data]: [string, any]) => ({
+        name,
+        coordinates: data.coordinates,
+        popular_times: data.popular_times,
+        busyness: getCurrentBusyness(data, now),
+        category: getCategory(name),
+      })),
+    [now]
+  );
+
+  useEffect(() => {
+    setSelected((prev) => {
+      if (!prev) return null;
+      const next = locations.find((l) => l.name === prev.name);
+      return next ?? prev;
+    });
+  }, [locations]);
 
   function selectLocation(loc: LocationEntry) {
     setSelected(loc);
@@ -127,8 +151,27 @@ export default function App() {
     }).start();
   }, [selected]);
 
-  const hourlyData = selected ? getTodayHourlyData(selected.popular_times) : [];
-  const currentHour = new Date().getHours();
+  const hourlyData = selected ? getTodayHourlyData(selected.popular_times, now) : [];
+  const currentHour = now.getHours();
+
+  function openSettings() {
+    setSettingsDraft(timeOverride ?? new Date());
+    setSettingsOpen(true);
+  }
+
+  function applySettingsTime() {
+    setTimeOverride(new Date(settingsDraft.getTime()));
+    setSettingsOpen(false);
+  }
+
+  function useDeviceTime() {
+    setTimeOverride(null);
+    setSettingsOpen(false);
+  }
+
+  function onPickerChange(_: any, date?: Date) {
+    if (date) setSettingsDraft(date);
+  }
 
   return (
     <View style={styles.container}>
@@ -174,6 +217,19 @@ export default function App() {
           <Text style={styles.liveText}>Live</Text>
         </View>
       </View>
+
+      {/* Settings FAB */}
+      {!selected && (
+        <TouchableOpacity
+          style={styles.settingsFab}
+          onPress={openSettings}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Open settings"
+        >
+          <Text style={styles.settingsFabIcon}>⚙️</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Legend */}
       {!selected && (
@@ -283,6 +339,68 @@ export default function App() {
           </>
         )}
       </Animated.View>
+
+      <Modal
+        visible={settingsOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setSettingsOpen(false)}
+      >
+        <SafeAreaView style={styles.settingsSafe}>
+          <View style={styles.settingsHeader}>
+            <TouchableOpacity onPress={() => setSettingsOpen(false)} style={styles.settingsBackBtn}>
+              <Text style={styles.settingsBackText}>← Back</Text>
+            </TouchableOpacity>
+            <Text style={styles.settingsTitle}>Settings</Text>
+            <View style={{ width: 72 }} />
+          </View>
+          <ScrollView contentContainerStyle={styles.settingsBody} keyboardShouldPersistTaps="handled">
+            <Text style={styles.settingsSectionLabel}>Date & time</Text>
+            <Text style={styles.settingsHint}>
+              {timeOverride == null
+                ? 'Using your device clock. Set a custom time to preview busyness for another moment.'
+                : 'Using a custom date and time for all busyness data.'}
+            </Text>
+            <Text style={styles.settingsPreview}>
+              {settingsDraft.toLocaleString(undefined, {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
+            </Text>
+            {Platform.OS === 'ios' ? (
+              <DateTimePicker
+                value={settingsDraft}
+                mode="datetime"
+                display="spinner"
+                themeVariant="light"
+                onChange={onPickerChange}
+                style={styles.iosPicker}
+              />
+            ) : (
+              <>
+                <DateTimePicker
+                  value={settingsDraft}
+                  mode="datetime"
+                  display="spinner"
+                  onChange={onPickerChange}
+                />
+                <Text style={styles.androidPickerNote}>
+                  Adjust the wheels, then tap the button below to apply.
+                </Text>
+              </>
+            )}
+            <TouchableOpacity style={styles.settingsPrimaryBtn} onPress={applySettingsTime} activeOpacity={0.9}>
+              <Text style={styles.settingsPrimaryBtnText}>Use this date & time</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.settingsSecondaryBtn} onPress={useDeviceTime} activeOpacity={0.85}>
+              <Text style={styles.settingsSecondaryBtnText}>Reset to device time</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
@@ -523,5 +641,112 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.2,
+  },
+
+  settingsFab: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 112 : 96,
+    right: 16,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+    zIndex: 20,
+  },
+  settingsFabIcon: {
+    fontSize: 26,
+  },
+
+  settingsSafe: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  settingsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E5E7EB',
+  },
+  settingsBackBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    minWidth: 72,
+  },
+  settingsBackText: {
+    fontSize: 17,
+    color: '#CC0000',
+    fontWeight: '600',
+  },
+  settingsTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111',
+  },
+  settingsBody: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  settingsSectionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 8,
+  },
+  settingsHint: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  settingsPreview: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#111',
+    marginBottom: 16,
+  },
+  iosPicker: {
+    height: 180,
+    alignSelf: 'stretch',
+  },
+  androidPickerNote: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  settingsPrimaryBtn: {
+    backgroundColor: '#CC0000',
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  settingsPrimaryBtnText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  settingsSecondaryBtn: {
+    marginTop: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  settingsSecondaryBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#CC0000',
   },
 });
